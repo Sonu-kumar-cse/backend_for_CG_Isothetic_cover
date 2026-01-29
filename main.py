@@ -1,100 +1,96 @@
-from fastapi import FastAPI, UploadFile, File, Form
+import os
+import uuid
+import time
+import threading
+
+from fastapi import FastAPI, UploadFile, Form
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-import uuid
-import threading
-import time
-import os
 
+# ---------------- PATHS ----------------
+BASE_DIR = os.path.dirname(__file__)
+INPUT_DIR = os.path.join(BASE_DIR, "jobs", "inputs")
+OUTPUT_DIR = os.path.join(BASE_DIR, "jobs", "outputs")
+
+os.makedirs(INPUT_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# ---------------- APP ----------------
 app = FastAPI()
 
-# ---------------- CORS (IMPORTANT FIX) ----------------
+# CORS → required for GitHub Pages
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # allow GitHub Pages
-    allow_credentials=True,
+    allow_origins=["*"],  # restrict later if needed
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------------- STORAGE ----------------
-jobs = {}
-os.makedirs("outputs", exist_ok=True)
+# job_id -> status
+jobs = {}  # "running" | "done"
 
-# ---------------- BACKGROUND JOB ----------------
-def run_job(job_id: str, p1: int, p2: int):
-    try:
-        # simulate long processing
-        time.sleep(300)  # 5 minutes
-
-        # generate SVG output
-        svg_content = f"""
-        <svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
-            <rect width="100%" height="100%" fill="white"/>
-            <text x="20" y="100" font-size="18">
-                p1 = {p1}, p2 = {p2}
-            </text>
-        </svg>
-        """
-
-        output_path = f"outputs/{job_id}.svg"
-        with open(output_path, "w") as f:
-            f.write(svg_content)
-
-        jobs[job_id]["status"] = "done"
-        jobs[job_id]["path"] = output_path
-
-    except Exception as e:
-        jobs[job_id]["status"] = "error"
-        jobs[job_id]["error"] = str(e)
-
-# ---------------- API ENDPOINTS ----------------
-
+# ---------------- START PROCESS ----------------
 @app.post("/start")
 async def start_processing(
-    image: UploadFile = File(...),
+    image: UploadFile,
     p1: int = Form(...),
     p2: int = Form(...)
 ):
     job_id = str(uuid.uuid4())
+    jobs[job_id] = "running"
 
-    jobs[job_id] = {
-        "status": "processing"
-    }
+    input_path = os.path.join(INPUT_DIR, f"{job_id}.png")
+    output_path = os.path.join(OUTPUT_DIR, f"{job_id}.svg")
 
-    threading.Thread(
-        target=run_job,
-        args=(job_id, p1, p2),
-        daemon=True
-    ).start()
+    # save image
+    with open(input_path, "wb") as f:
+        f.write(await image.read())
 
+    # background task
+    def process():
+        # 🔁 simulate long processing
+        time.sleep(10)
+
+        # 🔽 replace this with YOUR real algorithm
+        svg = f"""
+        <svg width="400" height="200" xmlns="http://www.w3.org/2000/svg">
+          <rect x="10" y="10" width="380" height="180"
+                fill="none" stroke="black" stroke-width="2"/>
+          <text x="40" y="110" font-size="18">
+            p1 = {p1}, p2 = {p2}
+          </text>
+        </svg>
+        """
+
+        with open(output_path, "w") as f:
+            f.write(svg)
+
+        jobs[job_id] = "done"
+
+    threading.Thread(target=process).start()
+
+    # ⬅️ immediate response
     return {"job_id": job_id}
 
-
+# ---------------- GET RESULT ----------------
 @app.get("/result/{job_id}")
 def get_result(job_id: str):
-    job = jobs.get(job_id)
-
-    if not job:
+    if job_id not in jobs:
         return JSONResponse(
             {"message": "Invalid job id"},
             status_code=404
         )
 
-    if job["status"] == "processing":
+    if jobs[job_id] != "done":
         return JSONResponse(
-            {"message": "Please wait more…"},
+            {"message": "Still processing, please wait"},
             status_code=202
         )
 
-    if job["status"] == "error":
-        return JSONResponse(
-            {"message": "Processing failed", "error": job.get("error")},
-            status_code=500
-        )
+    output_path = os.path.join(OUTPUT_DIR, f"{job_id}.svg")
 
     return FileResponse(
-        job["path"],
+        output_path,
         media_type="image/svg+xml",
         filename="output.svg"
     )
