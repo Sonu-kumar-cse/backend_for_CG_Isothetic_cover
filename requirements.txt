@@ -1,5 +1,23 @@
+# ---- Backend ----
 fastapi
 uvicorn
 python-multipart
-pillow
+
+# ---- Core numerical ----
+numpy
+scipy
+
+# ---- Image processing ----
 opencv-python-headless
+pillow
+
+# ---- Geometry / clustering ----
+shapely
+scikit-learn
+hdbscan
+
+# ---- String distance ----
+python-Levenshtein
+
+# ---- Visualization (safe even if unused at runtime) ----
+matplotlib
